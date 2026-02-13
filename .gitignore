@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.env
+.env.*
+pip-wheel-metadata/
+
+# Jupyter
+.ipynb_checkpoints/
+*.nbconvert.ipynb
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Data (no subir datasets)
+data/raw/
+data/processed/
+
+# Models / artifacts 
+models/
+artifacts/
+outputs/
+logs/
+*.pkl
+*.joblib
+
+# Docker local overrides
+docker-compose.override.yml
