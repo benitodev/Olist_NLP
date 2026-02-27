@@ -9,7 +9,6 @@ build/
 .venv/
 venv/
 .env
-.env.*
 pip-wheel-metadata/
 
 # Jupyter
