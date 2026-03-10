@@ -5,11 +5,13 @@ import psycopg
 from src.db.conn import get_db_conninfo
 from src.utils.json_utils import _as_list
 
-CONNINFO = get_db_conninfo()
+
+def _conninfo() -> str:
+    return get_db_conninfo()
 
 
 def fetch_item_neighbors(item_id: str, k: int, model: Optional[str] = None):
-    with psycopg.connect(CONNINFO) as conn:
+    with psycopg.connect(_conninfo()) as conn:
         with conn.cursor() as cur:
             if model:
                 cur.execute(
@@ -43,7 +45,7 @@ def fetch_item_neighbors(item_id: str, k: int, model: Optional[str] = None):
 
 
 def fetch_item_category(item_id: str) -> Optional[str]:
-    with psycopg.connect(CONNINFO) as conn:
+    with psycopg.connect(_conninfo()) as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT category_en FROM items WHERE item_id=%s LIMIT 1;",
@@ -54,7 +56,7 @@ def fetch_item_category(item_id: str) -> Optional[str]:
 
 
 def fallback_top_popular_global(k: int) -> List[Dict[str, Any]]:
-    with psycopg.connect(CONNINFO) as conn:
+    with psycopg.connect(_conninfo()) as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -72,7 +74,7 @@ def fallback_top_popular_global(k: int) -> List[Dict[str, Any]]:
 
 
 def fallback_top_popular_by_category(category: str, k: int) -> List[Dict[str, Any]]:
-    with psycopg.connect(CONNINFO) as conn:
+    with psycopg.connect(_conninfo()) as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -98,7 +100,7 @@ def fetch_context_recs(
     Fetch precomputed recs from recommendations_context.
     If model is None, returns the most recently generated model for that context.
     """
-    with psycopg.connect(CONNINFO) as conn:
+    with psycopg.connect(_conninfo()) as conn:
         with conn.cursor() as cur:
             if model:
                 cur.execute(
@@ -138,7 +140,7 @@ def fetch_user_precomputed_recs(
     Fetch precomputed user recs from recommendations_users.
     If model is None, returns the most recently generated model for that user.
     """
-    with psycopg.connect(CONNINFO) as conn:
+    with psycopg.connect(_conninfo()) as conn:
         with conn.cursor() as cur:
             if model:
                 cur.execute(
@@ -175,7 +177,7 @@ def fetch_recent_user_items(user_id: str, n: int = 5) -> List[str]:
     """
     Fetch last N purchased items for a user from interactions.
     """
-    with psycopg.connect(CONNINFO) as conn:
+    with psycopg.connect(_conninfo()) as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -188,4 +190,5 @@ def fetch_recent_user_items(user_id: str, n: int = 5) -> List[str]:
                 (user_id, n),
             )
             rows = cur.fetchall()
+    return [r[0] for r in rows]
     return [r[0] for r in rows]

@@ -44,13 +44,33 @@ def build_recs_list(df: pd.DataFrame, k: int) -> List[Dict]:
     ]
 
 
+def ensure_table_recommendations_context(conn: psycopg.Connection) -> None:
+    """
+    Creates recommendations_context if it does not exist.
+    """
+    sql = """
+    CREATE TABLE IF NOT EXISTS recommendations_context (
+      context_type  text NOT NULL,
+      context_value text NOT NULL,
+      model         text NOT NULL,
+      recs          jsonb NOT NULL,
+      generated_at  timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (context_type, context_value, model)
+    );
+    """
+    with conn.cursor() as cur:
+        cur.execute(sql)
+    conn.commit()
+
+
 def get_cutoff_ts(conn: psycopg.Connection) -> str:
     """
     Returns cutoff timestamp as ISO string.
 
     Priority:
       1) Use env CUTOFF_TS if provided (recommended for reproducibility).
-      2) Else compute percentile from interactions.ts using CUTOFF_QUANTILE (default 0.80).
+      2) Else compute percentile from purchase interactions.ts using
+         CUTOFF_QUANTILE (default 0.80).
     """
     cutoff_env = os.getenv("CUTOFF_TS")
     if cutoff_env and cutoff_env.strip():
@@ -62,16 +82,18 @@ def get_cutoff_ts(conn: psycopg.Connection) -> str:
 
     sql = """
         SELECT percentile_disc(%s) WITHIN GROUP (ORDER BY ts) AS cutoff_ts
-        FROM interactions;
+        FROM interactions
+        WHERE event_type = 'purchase';
         """
     with conn.cursor() as cur:
         cur.execute(sql, (q,))
         row = cur.fetchone()
 
     if row is None or row[0] is None:
-        raise RuntimeError("Could not compute cutoff timestamp from interactions.ts.")
+        raise RuntimeError(
+            "Could not compute cutoff timestamp from purchase interactions.ts."
+        )
 
-    # psycopg returns a datetime object; stringify it for logging / env consistency
     return str(row[0])
 
 
@@ -81,6 +103,7 @@ def fetch_popularity(
     """
     Fetch popularity counts from Postgres, filtered to TRAIN window:
       ts < cutoff_ts
+      AND event_type = 'purchase'
 
     Optional:
       if window_days is provided, also applies:
@@ -88,13 +111,15 @@ def fetch_popularity(
     (useful for 'trending' style popularity within train).
     """
     params: Tuple = (cutoff_ts,)
-    where_clause = "WHERE ts < CAST(%s AS timestamptz)"
+    where_clause = """
+    WHERE event_type = 'purchase'
+      AND ts < CAST(%s AS timestamptz)
+    """
 
     if window_days is not None and window_days > 0:
-        # We keep it parameterized by passing window_days and using make_interval.
-        where_clause += (
-            " AND ts >= (CAST(%s AS timestamptz) - make_interval(days => %s))"
-        )
+        where_clause += """
+          AND ts >= (CAST(%s AS timestamptz) - make_interval(days => %s))
+        """
         params = (cutoff_ts, cutoff_ts, window_days)
 
     sql = f"""
@@ -134,7 +159,7 @@ def upsert_recommendations(
     """
     sql = """
     INSERT INTO recommendations_context(context_type, context_value, model, recs, generated_at)
-    VALUES (%s, %s, %s, %s, now())
+    VALUES (%s, %s, %s, %s::jsonb, now())
     ON CONFLICT (context_type, context_value, model)
     DO UPDATE SET recs = EXCLUDED.recs,
                   generated_at = EXCLUDED.generated_at;
@@ -144,10 +169,13 @@ def upsert_recommendations(
     conn.commit()
 
 
-def main():
+def run():
     load_dotenv()
 
-    TOPK = int(os.getenv("TOPK", "30"))
+    topk = int(os.getenv("TOPK", "30"))
+    if topk <= 0:
+        raise ValueError("TOPK must be > 0")
+
     model_name = os.getenv("MODEL_NAME", "popularity_context")
 
     # Optional trending-style restriction within train window (days before cutoff)
@@ -157,6 +185,8 @@ def main():
     conninfo = get_db_conninfo()
 
     with psycopg.connect(conninfo) as conn:
+        ensure_table_recommendations_context(conn)
+
         cutoff_ts = get_cutoff_ts(conn)
         print(f"[build_context_recommendations] cutoff_ts = {cutoff_ts}")
 
@@ -169,7 +199,7 @@ def main():
         items = fetch_items(conn)
 
         # Global top-K
-        global_recs = build_recs_list(pop, TOPK)
+        global_recs = build_recs_list(pop, topk)
 
         # Category top-K (join popularity with category metadata)
         pop_cat = pop.merge(items, on="item_id", how="left")
@@ -185,7 +215,7 @@ def main():
 
         # 2) per category_en
         for cat, grp in pop_cat.groupby("category_en"):
-            recs = build_recs_list(grp[["item_id", "score"]], TOPK)
+            recs = build_recs_list(grp[["item_id", "score"]], topk)
             rows_to_upsert.append(
                 ("category_en", str(cat), model_name, json.dumps(recs))
             )
@@ -200,6 +230,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
-if __name__ == "__main__":
-    main()
+    run()
