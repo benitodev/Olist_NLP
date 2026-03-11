@@ -1,4 +1,4 @@
-name: olist_api
+name: base
 channels:
   - conda-forge
 dependencies:

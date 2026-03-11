@@ -3,7 +3,7 @@ version: "3.8"
 services:
   db:
     image: postgres:15
-    restart: always
+    restart: unless-stopped
     env_file:
       - .env
     volumes:
@@ -14,12 +14,17 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   api:
     build:
       context: .
       dockerfile: Dockerfile.api
-    restart: always
+    restart: unless-stopped
     env_file:
       - .env
     environment:
@@ -30,6 +35,16 @@ services:
         condition: service_healthy
     ports:
       - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   etl:
     build:
@@ -45,6 +60,11 @@ services:
         condition: service_healthy
     profiles: ["etl"]
     command: ["micromamba", "run", "-n", "base", "python", "-m", "src.etl.run_all"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   postgres_data: {}
